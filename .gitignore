@@ -9,4 +9,6 @@ frontend/node_modules/
 frontend/dist/
 
 # Environment Variables
+.env.env
+
 .env
