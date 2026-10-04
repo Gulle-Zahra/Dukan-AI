@@ -1,4 +1,5 @@
 """Supervisor: turns a mixed Urdu / Roman Urdu / English sentence into structured actions."""
+import json
 import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -82,6 +83,24 @@ def _clean(intent: ParsedIntent) -> ParsedIntent:
     return ParsedIntent(actions=actions or [ParsedAction(action="unknown")])
 
 
+def _salvage(error: Exception) -> ParsedIntent | None:
+    """Groq sometimes calls a tool named 'json' instead of ours; the JSON itself is fine — reuse it."""
+    body = getattr(error, "body", None)
+    if not isinstance(body, dict):
+        return None
+    gen = body.get("failed_generation") or (body.get("error") or {}).get("failed_generation")
+    if not gen:
+        return None
+    try:
+        data = json.loads(gen)
+        args = data.get("arguments", data) if isinstance(data, dict) else data
+        if isinstance(args, str):
+            args = json.loads(args)
+        return ParsedIntent.model_validate(args)
+    except Exception:
+        return None
+
+
 def parse_intent(text: str) -> ParsedIntent:
     text = normalize_digits((text or "").strip())
     if not text:
@@ -90,5 +109,9 @@ def parse_intent(text: str) -> ParsedIntent:
         try:
             return _clean(_call_llm(prompt, text))
         except Exception as e:  # network, schema, provider quirks
+            salvaged = _salvage(e)
+            if salvaged is not None:
+                log.info("parse attempt %d: recovered output from provider error", attempt)
+                return _clean(salvaged)
             log.warning("parse attempt %d failed: %s", attempt, e)
     return ParsedIntent(actions=[ParsedAction(action="unknown")])
