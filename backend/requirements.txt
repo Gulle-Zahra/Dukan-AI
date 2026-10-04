@@ -5,4 +5,9 @@ pydantic
 pydantic-settings
 rapidfuzz
 python-multipart
-python-dotenv
+APScheduler==3.11.3
+langchain-core==1.6.6
+langchain-openai==1.6.7
+langgraph==1.2.12
+openai==3.24.0
+python-dotenv==1.2.4
