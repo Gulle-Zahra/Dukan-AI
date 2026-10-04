@@ -5,6 +5,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from app.agents import inventory_agent, khata_agent, reorder_agent
+from app.agents.activity import record
 from app.agents.reply import build_reply
 from app.agents.repo_provider import repo
 from app.agents.schemas import ParsedIntent
@@ -109,13 +110,25 @@ def _build():
 _graph = None
 
 
+def _agent_path(actions: list[ActionResult], pending_ids: list[int]) -> str:
+    path = ["Supervisor", "Validator"]
+    done = {a.type for a in actions if a.status == "done"}
+    if done & INVENTORY:
+        path.append("Inventory")
+    if done & KHATA:
+        path.append("Khata")
+    if pending_ids:
+        path.append("Reorder")
+    return " -> ".join(path)
+
+
 def run_agent(text: str, transcript: str | None = None) -> AgentResponse:
     global _graph
     try:
         if _graph is None:
             _graph = _build()
         out = _graph.invoke({"input_text": text, "transcript": transcript})
-        return AgentResponse(
+        resp = AgentResponse(
             input_text=text,
             transcript=transcript,
             actions=[r for r in out.get("results", []) if r is not None],
@@ -125,8 +138,14 @@ def run_agent(text: str, transcript: str | None = None) -> AgentResponse:
     except Exception:
         log.exception("run_agent crashed")
         msg = "Maaf kijiye, abhi kuch masla aa gaya — dobara koshish karein"
-        return AgentResponse(
+        resp = AgentResponse(
             input_text=text, transcript=transcript,
             actions=[ActionResult(type="error", status="rejected", detail=msg)],
             reply_text=f"❌ {msg}", pending_message_ids=[],
         )
+    try:
+        status = "done" if any(a.status == "done" for a in resp.actions) else "rejected"
+        record(text, resp.reply_text, status, _agent_path(resp.actions, resp.pending_message_ids))
+    except Exception:
+        log.exception("activity log failed")
+    return resp

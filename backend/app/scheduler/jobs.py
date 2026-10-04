@@ -7,6 +7,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 
 from app.agents import reorder_agent
+from app.agents.activity import record
 from app.agents.normalize import fmt
 from app.agents.repo_provider import repo
 
@@ -63,6 +64,9 @@ def run_sweep() -> list[int]:
             except Exception:
                 log.exception("%s sweep failed", name)
         log.info("Sweep done: %d new pending message(s) %s", len(new_ids), new_ids)
+        if new_ids:  # only log sweeps that did something, so the feed isn't flooded
+            record("⏰ Scheduler sweep", f"📦 {len(new_ids)} naye message approval ke liye tayyar",
+                   "done", "Scheduler -> Reorder / Reminder")
         return new_ids
     finally:
         _sweep_lock.release()
